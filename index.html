@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Verificación de Billetes Serie B</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.0/dist/tesseract.min.js"></script>
+
+  <style>
+    :root {
+      --primary: #006633;
+      --primary-dark: #004d26;
+      --success: #28a745;
+      --danger: #dc3545;
+      --gray: #6c757d;
+      --scan-line: #00ff41;
+      --guide: rgba(0, 255, 65, 0.7);
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #e8f5e9, #c8e6c9);
+      color: #1e1e1e;
+      margin: 0;
+      padding: 12px 8px;
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 640px;
+      margin: 0 auto;
+    }
+
+    header {
+      text-align: center;
+      margin: 1.2rem 0 1.8rem;
+    }
+
+    h1 {
+      color: var(--primary);
+      font-size: 1.9rem;
+      margin: 0 0 0.4rem;
+    }
+
+    .subtitle {
+      color: var(--gray);
+      font-size: 1rem;
+    }
+
+    .card {
+      background: white;
+      border-radius: 20px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+      padding: 1.8rem 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    label {
+      font-weight: 600;
+      display: block;
+      margin: 0.8rem 0 0.5rem;
+      color: #333;
+      font-size: 1.05rem;
+    }
+
+    select {
+      width: 100%;
+      padding: 14px;
+      border: 2px solid #ced4da;
+      border-radius: 12px;
+      font-size: 1.1rem;
+      background: #f8f9fa;
+    }
+
+    select:focus {
+      border-color: var(--primary);
+      outline: none;
+      box-shadow: 0 0 0 4px rgba(0, 102, 51, 0.18);
+    }
+
+    .btn {
+      padding: 16px;
+      font-size: 1.15rem;
+      font-weight: 600;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+      width: 100%;
+      margin: 1.2rem 0;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: var(--primary-dark);
+      transform: translateY(-1px);
+    }
+
+    .btn-processing {
+      background: #6c757d;
+      color: white;
+      cursor: wait;
+    }
+
+    .btn-retry {
+      background: #ffc107;
+      color: #212529;
+    }
+
+    #video-container {
+      position: relative;
+      margin: 1.2rem 0;
+      border: 3px solid #dee2e6;
+      border-radius: 16px;
+      overflow: hidden;
+      background: #000;
+      display: none;
+      aspect-ratio: 4 / 3;
+      /* más rectangular */
+    }
+
+    #video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    #guide-overlay {
+      position: absolute;
+      inset: auto;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 80%;
+      height: 25%;
+      pointer-events: none;
+      border: 3px dashed var(--guide);
+      box-sizing: border-box;
+      border-radius: 8px;
+      opacity: 0.85;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: bold;
+      font-size: 1.1rem;
+      text-shadow: 0 0 6px black;
+      background: rgba(0, 0, 0, 0.15);
+    }
+
+    #scan-line {
+      position: absolute;
+      left: 0;
+      right: 0;
+      height: 5px;
+      background: linear-gradient(to right, transparent, var(--scan-line), transparent);
+      box-shadow: 0 0 15px var(--scan-line);
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    #ocr-status {
+      margin: 0 0 1rem 0;
+      padding: 1rem;
+      background: #e9ecef;
+      border-radius: 12px;
+      text-align: center;
+      font-size: 1.05rem;
+      font-weight: 600;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      transition: all 0.3s ease;
+    }
+
+    #ocr-status.active {
+      display: flex;
+      background: #e2e3e5;
+      color: #383d41;
+      border: 1px solid #d6d8db;
+    }
+
+    #ocr-status.processing {
+      background: #cce5ff;
+      color: #004085;
+      border: 1px solid #b8daff;
+    }
+
+    .spinner {
+      width: 18px;
+      height: 18px;
+      border: 3px solid rgba(0, 64, 133, 0.3);
+      border-top-color: #004085;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      display: none;
+    }
+
+    #ocr-status.processing .spinner {
+      display: block;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    #countdown-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 6rem;
+      font-weight: bold;
+      color: white;
+      text-shadow: 0 0 20px rgba(0, 0, 0, 0.9);
+      z-index: 10;
+      pointer-events: none;
+      opacity: 0;
+    }
+
+    .countdown-anim {
+      animation: pulseCount 0.9s ease-out;
+    }
+
+    @keyframes pulseCount {
+      0% {
+        transform: scale(0.5);
+        opacity: 0;
+      }
+
+      30% {
+        transform: scale(1.2);
+        opacity: 1;
+      }
+
+      100% {
+        transform: scale(1);
+        opacity: 0;
+      }
+    }
+
+    #result {
+      margin: 0 0 1rem 0;
+      padding: 1.2rem;
+      border-radius: 12px;
+      font-size: 1.5rem;
+      font-weight: bold;
+      text-align: center;
+      display: none;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+      animation: popIn 0.3s ease-out forwards;
+    }
+
+    @keyframes popIn {
+      0% {
+        opacity: 0;
+        transform: scale(0.9);
+      }
+
+      100% {
+        opacity: 1;
+        transform: scale(1);
+      }
+    }
+
+    #result.success {
+      background: #d4edda;
+      color: #155724;
+      border: 2px solid #28a745;
+    }
+
+    #result.danger {
+      background: #f8d7da;
+      color: #721c24;
+      border: 2px solid var(--danger);
+    }
+
+    #result.info {
+      background: #fff3cd;
+      color: #856404;
+      border: 2px solid #ffeeba;
+    }
+
+    .footer {
+      text-align: center;
+      color: var(--gray);
+      font-size: 0.9rem;
+      margin-top: 1rem;
+    }
+
+    .footer a {
+      color: var(--primary);
+      text-decoration: none;
+      font-weight: bold;
+    }
+
+    /* Modal Disclaimer */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(5px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+      padding: 1rem;
+    }
+
+    .modal-overlay.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .modal-content {
+      background: white;
+      width: 100%;
+      max-width: 500px;
+      border-radius: 20px;
+      padding: 2rem;
+      box-shadow: 0 15px 35px rgba(0, 0, 0, 0.2);
+      transform: translateY(20px);
+      transition: transform 0.3s ease;
+      max-height: 85vh;
+      overflow-y: auto;
+    }
+
+    .modal-overlay.active .modal-content {
+      transform: translateY(0);
+    }
+
+    .modal-title {
+      color: var(--danger);
+      margin-top: 0;
+      margin-bottom: 1rem;
+      font-size: 1.4rem;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .modal-body {
+      color: #444;
+      font-size: 0.95rem;
+      line-height: 1.6;
+    }
+
+    .modal-body h4 {
+      color: var(--primary-dark);
+      margin: 1.2rem 0 0.5rem;
+      font-size: 1.1rem;
+    }
+
+    .modal-body p {
+      margin-bottom: 0.8rem;
+    }
+
+    .modal-footer {
+      margin-top: 1.5rem;
+      text-align: right;
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- Modal -->
+  <div class="modal-overlay" id="disclaimerModal">
+    <div class="modal-content">
+      <h2 class="modal-title">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+          <line x1="12" y1="9" x2="12" y2="13" />
+          <line x1="12" y1="17" x2="12.01" y2="17" />
+        </svg>
+        Descargo de Responsabilidad
+      </h2>
+      <div class="modal-body">
+        <p>Esta aplicación utiliza reconocimiento óptico de caracteres (OCR) para leer el número de serie desde imágenes
+          capturadas por la cámara.</p>
+        <p>La verificación se limita únicamente al número de serie de la Serie B. No analiza elementos de seguridad
+          físicos ni certifica la autenticidad del billete.</p>
+        <p>No se garantiza la precisión del reconocimiento. Los resultados pueden contener errores debido a iluminación,
+          calidad de imagen, enfoque u otras limitaciones del OCR.</p>
+        <p>La información proporcionada es solo referencial. Ante cualquier duda, verifica manualmente.</p>
+        <p>El desarrollador no asume responsabilidad por pérdidas, daños o decisiones tomadas con base en los
+          resultados. El uso de la aplicación es bajo responsabilidad del usuario. Si no estás de acuerdo, no la
+          utilices.</p>
+
+        <h4>Privacidad</h4>
+        <p>Todo el procesamiento se realiza en tu dispositivo.<br>Las imágenes no se envían a servidores externos, no se
+          almacenan y no se comparte información personal.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" id="acceptBtn"
+          style="margin: 0; width: 100%; padding: 14px; font-size: 1.1rem;">Acepto los términos</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="container">
+    <header>
+      <h1>Verificacion de Billetes</h1>
+    </header>
+
+    <div class="card">
+      <label for="denominacion">Denominación</label>
+      <select id="denominacion" required>
+        <option value="" disabled selected>Selecciona Bs 10, 20 o 50</option>
+        <option value="10">Bs 10</option>
+        <option value="20">Bs 20</option>
+        <option value="50">Bs 50</option>
+      </select>
+
+      <button id="scanBtn" class="btn btn-primary">
+        <svg style="margin-right: 8px; vertical-align: middle; margin-top: -3px;" width="22" height="22"
+          viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+          stroke-linejoin="round">
+          <path d="M3 7V5a2 2 0 0 1 2-2h2" />
+          <path d="M17 3h2a2 2 0 0 1 2 2v2" />
+          <path d="M21 17v2a2 2 0 0 1-2 2h-2" />
+          <path d="M7 21H5a2 2 0 0 1-2-2v-2" />
+          <circle cx="12" cy="12" r="3" />
+          <path d="m19 19-2-2" />
+        </svg>
+        <span id="scanBtnText">Iniciar Escáner</span>
+      </button>
+
+      <!-- Panel de estado e info arriba del video -->
+      <div id="ocr-status">
+        <div class="spinner"></div>
+        <div id="ocr-status-text"></div>
+      </div>
+      <div id="result"></div>
+
+      <div id="video-container">
+        <video id="video" autoplay playsinline></video>
+        <div id="guide-overlay"><br></div>
+        <div id="countdown-overlay"></div>
+        <div id="scan-line"></div>
+      </div>
+    </div>
+
+    <div class="footer">
+      Usa buena luz y mantén el billete plano sobre una superficie estable.<br><br>
+      Desarrollado por Carlos Carrillo
+    </div>
+  </div>
+
+  <script>
+    // Rangos (sin cambios)
+    const rangosInhabilitados = {
+      "10": [[67250001, 67700000], [69050001, 69500000], [69500001, 69950000], [69950001, 70400000], [70400001, 70850000], [70850001, 71300000], [76310012, 85139995], [86400001, 86850000], [90900001, 91350000], [91800001, 92250000]],
+      "20": [[87280145, 91646549], [96650001, 97100000], [99800001, 100250000], [1000250001, 100700000], [109250001, 109700000], [110600001, 111050000], [111050001, 111500000], [111950001, 112400000], [112400001, 112850000], [112850001, 113300000], [114200001, 114650000], [114650001, 115100000], [115100001, 115500000], [118700001, 119150000], [119150001, 119600000], [120500001, 120950000]],
+      "50": [[77100001, 77550000], [78000001, 78450000], [78900001, 96350000], [96350001, 96800000], [96800001, 97250000], [98150001, 98600000], [104900001, 105335000], [105350001, 105800000], [106700001, 107150000], [107600001, 108050000], [108050001, 108500000], [109400001, 109850000]]
+    };
+
+    const scanBtn = document.getElementById('scanBtn');
+    const scanBtnText = document.getElementById('scanBtnText');
+    const video = document.getElementById('video');
+    const videoContainer = document.getElementById('video-container');
+    const scanLine = document.getElementById('scan-line');
+    const ocrStatus = document.getElementById('ocr-status');
+    const ocrStatusText = document.getElementById('ocr-status-text');
+    const resultDiv = document.getElementById('result');
+    const denomSelect = document.getElementById('denominacion');
+    const guideOverlay = document.getElementById('guide-overlay');
+    const countdownOverlay = document.getElementById('countdown-overlay');
+
+    let stream = null;
+    let worker = null;
+    let scanning = false;
+
+    async function startScanner() {
+      if (scanning) return;
+      scanning = true;
+
+      const denom = denomSelect.value;
+      if (!denom) {
+        alert("Selecciona primero la denominación");
+        scanning = false;
+        return;
+      }
+
+      scanBtnText.textContent = "Escaneando...";
+      scanBtn.classList.add('btn-processing');
+      scanBtn.disabled = true;
+
+      ocrStatus.className = 'active processing';
+      ocrStatusText.textContent = "Iniciando cámara...";
+
+      videoContainer.style.display = 'block';
+      resultDiv.style.display = 'none';
+
+      try {
+        if (stream) stream.getTracks().forEach(t => t.stop());
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+        });
+        video.srcObject = stream;
+
+        // Esperar a que el video cargue antes de empezar cuenta regresiva
+        video.onloadedmetadata = () => {
+          startCountdown(denom);
+        };
+
+      } catch (err) {
+        console.error("Error acceso cámara:", err);
+        ocrStatus.className = 'active';
+        ocrStatusText.textContent = "Error de cámara. ¿Diste permisos?";
+        resetScanner();
+      }
+    }
+
+    function startCountdown(denom) {
+      ocrStatus.className = 'active';
+      ocrStatusText.textContent = "¡Enfoca el billete! Capturando en...";
+
+      let count = 3;
+      countdownOverlay.style.opacity = '1';
+
+      const interval = setInterval(() => {
+        if (count > 0) {
+          countdownOverlay.textContent = count;
+          countdownOverlay.classList.remove('countdown-anim');
+          void countdownOverlay.offsetWidth; // Forzar reflow para reiniciar animación CSS
+          countdownOverlay.classList.add('countdown-anim');
+          count--;
+        } else {
+          clearInterval(interval);
+          countdownOverlay.style.opacity = '0';
+          countdownOverlay.textContent = '';
+
+          ocrStatusText.textContent = "Capturando foto...";
+
+          // Efecto visual escáner rápido antes del procesado real
+          scanLine.style.opacity = '1';
+          scanLine.animate([
+            { top: '0%', opacity: 0.9 },
+            { top: '100%', opacity: 0.9 },
+            { top: '100%', opacity: 0 }
+          ], { duration: 1000, iterations: Infinity, easing: 'ease-in-out' });
+
+          setTimeout(() => doOCR(denom), 300); // Lag visual de 300ms antes de congelar video
+        }
+      }, 1000);
+    }
+
+    async function doOCR(denom) {
+      if (!video.videoWidth) {
+        ocrStatus.className = 'active';
+        ocrStatusText.textContent = "Cámara no lista. Reintenta.";
+        resetScanner();
+        return;
+      }
+
+      ocrStatus.className = 'active processing';
+      ocrStatusText.textContent = "Procesando imagen... (5–15 segundos)";
+
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext('2d').drawImage(video, 0, 0);
+
+      // Pausar cámara temporalmente (detener el video element, no el stream completo si es posible)
+      video.pause();
+
+      try {
+        if (!worker) {
+          ocrStatusText.textContent = "Cargando motor OCR (primera vez puede tardar)...";
+          worker = await Tesseract.createWorker('eng', 1, {
+            logger: m => {
+              if (m.status === 'recognizing text') {
+                ocrStatusText.textContent = `Procesando: ${Math.round(m.progress * 100)}%`;
+              }
+            }
+          });
+        }
+
+        const { data: { text } } = await worker.recognize(canvas);
+
+        const match = text.match(/\b\d{7,10}\b/);
+        let numeroStr = match ? match[0] : null;
+        let numero = numeroStr ? parseInt(numeroStr.replace(/^0+/, ''), 10) : NaN;
+
+        scanLine.style.opacity = '0';
+
+        if (numeroStr && !isNaN(numero)) {
+          ocrStatus.className = 'active';
+          ocrStatusText.innerHTML = `Nro. detectado: <strong>${numeroStr}</strong>`;
+
+          const rangos = rangosInhabilitados[denom] || [];
+          const inhabilitado = rangos.some(([d, h]) => numero >= d && numero <= h);
+
+          resultDiv.innerHTML = inhabilitado
+            ? `INHABILITADO`
+            : `HABILITADO`;
+          resultDiv.className = inhabilitado ? 'danger' : 'success';
+
+          resultDiv.style.display = 'block';
+        } else {
+          ocrStatus.className = 'active';
+          ocrStatusText.innerHTML = `<strong>No se detectó número claro</strong>`;
+          resultDiv.innerHTML = "Demasiado borroso, Reintenta";
+          resultDiv.className = 'info';
+          resultDiv.style.display = 'block';
+        }
+
+      } catch (err) {
+        ocrStatus.className = 'active';
+        ocrStatusText.textContent = "Error: " + err.message;
+        resultDiv.innerHTML = "Error al procesar";
+        resultDiv.className = 'info';
+        resultDiv.style.display = 'block';
+      } finally {
+        // Restaurar video state
+        video.play();
+        scanBtnText.textContent = "Reintentar Escaneo";
+        scanBtn.classList.remove('btn-processing');
+        scanBtn.disabled = false;
+        scanning = false;
+      }
+    }
+
+    function resetScanner() {
+      scanning = false;
+      scanBtnText.textContent = "Iniciar Escáner";
+      scanBtn.classList.remove('btn-processing');
+      scanBtn.disabled = false;
+      scanLine.style.opacity = '0';
+      ocrStatus.className = '';
+      if (countdownOverlay) {
+        countdownOverlay.style.opacity = '0';
+        countdownOverlay.textContent = '';
+      }
+    }
+
+    scanBtn.addEventListener('click', startScanner);
+
+    // Lógica del Modal
+    const disclaimerModal = document.getElementById('disclaimerModal');
+    const acceptBtn = document.getElementById('acceptBtn');
+
+    window.addEventListener('load', () => {
+      // Usamos sessionStorage para mostrarlo una vez por sesión del navegador
+      if (!sessionStorage.getItem('disclaimerAccepted')) {
+        disclaimerModal.classList.add('active');
+        document.body.style.overflow = 'hidden'; // Evita scroll
+      }
+    });
+
+    acceptBtn.addEventListener('click', () => {
+      sessionStorage.setItem('disclaimerAccepted', 'true');
+      disclaimerModal.classList.remove('active');
+      document.body.style.overflow = '';
+    });
+  </script>
+
+</body>
+
+</html>

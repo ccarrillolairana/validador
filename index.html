@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Verificación de Billetes Serie B</title>
 
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.0/dist/tesseract.min.js"></script>
+  <script src="./assets/ocr/tesseract.min.js"></script>
 
   <style>
     :root {
@@ -585,8 +585,11 @@
 
       try {
         if (!worker) {
-          ocrStatusText.textContent = "Cargando motor OCR (primera vez puede tardar)...";
+          ocrStatusText.textContent = "Cargando motor OCR...";
           worker = await Tesseract.createWorker('eng', 1, {
+            workerPath: './assets/ocr/worker.min.js',
+            corePath: './assets/ocr/tesseract-core.wasm.js',
+            langPath: './assets/ocr',
             logger: m => {
               if (m.status === 'recognizing text') {
                 ocrStatusText.textContent = `Procesando: ${Math.round(m.progress * 100)}%`;
